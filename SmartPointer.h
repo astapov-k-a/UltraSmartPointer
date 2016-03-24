@@ -99,9 +99,8 @@ class Base : public Counter {
 
    private:
     Base & GetData() {
-     ASSERTION(Get(), "Null dereferencing!!!")
-     return *Get();
-     
+      ASSERTION(Get(), "Null dereferencing!!!")
+      return *Get();
     }
 };
 
@@ -268,8 +267,14 @@ class SmartPointer
   Control const *     control() const {return ref_;}
   Control       * get_control()       {return ref_;}
   void control (const Control * value) {ref_ = const_cast<Control *>(value);}
-  Control const *     data() const {return     control().Get();}
-  Control       * get_data()       {return get_control().Get();}
+  Control const *     data() const {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    return     control().Get();
+  }
+  Control       * get_data()       {
+    return get_control().Get();
+    ASSERTION(control(), "Null Dereferencing", Exception);
+  }
 
  private:
   template <typename Tn_, template <typename> class TraitsTn_>
