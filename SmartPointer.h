@@ -266,6 +266,15 @@ class SmartPointer
   void ConstructReferenceAt(This & to_construct) const;
   Control const *     control() const {return ref_;}
   Control       * get_control()       {return ref_;}
+  /**
+   @remarks Здесь стоит const_cast из-за ConstructReferenceAt, который проводит действия над константным
+   объектом. Если его заменить на ConstructReferenceFrom (т.е. конструировать будет не владелец данных, а создаваемый объект),
+   то const-correctness полностью восстановится. в момент написания кода, мне казалось, что по логике создавать объект должен именно
+   владелец. Но потери для const-correctness оказались, по результатам, катастрофическими (даже Counter стал mutable), поэтому, 
+   нужно обдумать, нужно ли это в архитектуре указателя.
+   Сейчас я думаю, что возможно, поторопился
+   @todo заменить ConstructReferenceAt на ConstructReferenceFrom ???
+  **/
   void control (const Control * value) {ref_ = const_cast<Control *>(value);}
   Control const *     data() const {
     ASSERTION(control(), "Null Dereferencing", Exception);
