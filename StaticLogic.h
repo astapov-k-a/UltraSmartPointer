@@ -69,7 +69,7 @@ private:
 /** @remarks условие "не-класс" можно уточнять в зависимости от условий задачи - "не-класс или POD, но не union",
              "не-класс или POD с sizeof < const_lim_size", например.
              Это всего лишь простой образец того, как это можно сделать
-**/ 
+**/
 template <typename Tn> class CompositeOrReference : public CompositeOrReferenceIf<Tn, ! std::is_class<Tn>::value > {};
 
 
