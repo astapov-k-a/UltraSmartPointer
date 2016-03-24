@@ -21,8 +21,9 @@ class Exception {};
 
 /// @brief макрос обработки ошибки - в него можно подставить как исключение, так и int 3, так печать в лог - по ситуации. или ничего :)
 #define ASSERTION(Condition, ErrorMessage, WhatObjectToThrow) {}
+#define STATIC_ASSERTION(Condition)
 
-/// @brief выбирает класс из двух по условию
+/// @brief статически выбирает класс из двух по условию
 template <class A, class B, bool  Condition> class StaticSwitch;
 template <class A, class B> class StaticSwitch< A, B, true>       : public A {};
 template <class A, class B> class StaticSwitch< A, B, false>      : public B {};
@@ -41,10 +42,16 @@ template <typename Tn> class CompositeOrReferenceIf<Tn,false> { //создаём
   Tn const * Get() const {return data_;}
   void Set(Tn & new_value) {GetData() = new_value;}
   void SetReference(Tn * value) {data_ = value;}
-  void DeleteData(DeleterFunction del_f) {del_f( Get() );}///@remarks надо было сделать функтор удаления, так же, как для создания, по образцу MakeSimple и компания, но за неимением времени пусть будет так
+  void DeleteData(DeleterFunction del_f) {
+    del_f( Get() );
+    SetReference(nullptr);
+  }///@remarks надо было сделать функтор удаления, так же, как для создания, по образцу MakeSimple и компания, но за неимением времени пусть будет так
 
  private:
-  Tn & GetData() {return *Get();}
+  Tn & GetData() {
+    ASSERTION(Get(), "Null dereferencing", Exception);
+    return *Get();
+  }
   Tn * data_;
 };
 
