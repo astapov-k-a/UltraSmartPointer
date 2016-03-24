@@ -116,6 +116,7 @@ class MakeFoe{
     ASSERTION(re, "Bad allocation", Exception)
     if (re) {
       Tn * new_value =  static_cast<Tn*>( Traits<Tn>::template Create<Tn>() );
+      ASSERTION(new_value, "Bad allocation", Exception)
       re->SetReference(new_value);
     }
     return re;
@@ -184,7 +185,9 @@ class SmartPointer
 
   SmartPointer() : ref_(nullptr) {}
   SmartPointer(const This & value) {value.ConstructReferenceAt(*this);}
-  ~SmartPointer() {Dereference();}
+  ~SmartPointer() {
+    Dereference();
+  }
 
   This & operator= (const This & value) {value.ConstructReferenceAt(*this);}
   Pointer      operator->()       {return static_cast<     Pointer>( get_control()->Get() );}
@@ -228,20 +231,21 @@ class SmartPointer<Tn, TraitsTn>::Maker
 
 template <typename Tn, template <typename> class TraitsTn>
 void SmartPointer<Tn, TraitsTn>::Dereference() {
-   if ( get_control()->DecreaseReferenceCount() ) {
-     typedef void (*LocalDelete) (Tn *);
-     LocalDelete del_f = static_cast<LocalDelete>(&TraitsTn<Tn>::Delete); //берём указатель на шаблонную функцию-деаллокатор
-     get_control()->DeleteData( (DeleterFunction)del_f );
-     TraitsTn<Tn>::Delete(get_control());
-     control(nullptr);
-   }
+  if ( !control() ) return;
+  if ( !get_control()->DecreaseReferenceCount() ) {
+    typedef void (*LocalDelete) (Tn *);
+    LocalDelete del_f = static_cast<LocalDelete>(&TraitsTn<Tn>::Delete); //берём указатель на шаблонную функцию-деаллокатор
+    get_control()->DeleteData( (DeleterFunction)del_f );
+    TraitsTn<Tn>::Delete(get_control());
+    control(nullptr);
+  }
 };
 
 template <typename Tn, template <typename> class TraitsTn>
 void SmartPointer<Tn, TraitsTn>::ConstructReferenceAt(This & to_construct) const {
   IncreaseReference();
   to_construct.control( control() );
-};
+}
 
 
 template <typename Tn, template <typename> class TraitsTn = DefaultTraits>
