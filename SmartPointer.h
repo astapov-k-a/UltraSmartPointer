@@ -37,13 +37,13 @@ class Counter {
   typedef QAtomicInt CounterInt; // не ставлю целью сделать потокобезопасный указатель, но пусть будет атомик на будущее
   typedef Type * Pointer;
 
+  Counter() : counter_(0) {}
     /**
      * @warning Этот класс - просто счётчик ссылок, который может являться частью данных.
      *          Это означает, что если при присвоении одному классу затрётся счётчик ссылок,
      *          то все указатели на него не валидны. Поэтому счётчики не копируются - 
      *          копирующие конструкторы и операторы присваивания у них пусты!!!
      **/
-  Counter() : counter_(0) {}
   Counter(const Counter & to_copy) {Q_UNUSED(to_copy);} //нельзя автоматически копировать счётчик
 
     /**
@@ -90,13 +90,19 @@ class Base : public Counter {
     Base const * Get() const {return this;} /// @для обеспечения совместимости с @ref SmartPointer
     template <class Tn>
     void Set(Tn & new_value) {
-      volatile Tn * convert = dynamic_cast<Tn*>(this); //исключение, если в Set передан не наследник Base или данный класс не Tn
+      Tn * convert = dynamic_cast<Tn*>(this); //исключение, если в Set передан не наследник Base или данный класс не Tn
+      STATIC_ASSERTION(std::is_base_of(Base, Tn)); //@todo рассмотреть и обдумать, какой из ассертов - статический, динамический или оба - имеют смысл здесь
+      ASSERTION(convert, "Bad cast!!!", Exception)
       *convert = new_value;
     }
     void DeleteData(DeleterFunction del_f) {Q_UNUSED(del_f);} /// @для обеспечения совместимости с @ref SmartPointer
 
    private:
-    Base & GetData() {return *Get();}
+    Base & GetData() {
+     ASSERTION(Get(), "Null dereferencing!!!")
+     return *Get();
+     
+    }
 };
 
 
@@ -149,7 +155,7 @@ class MakeFoe{
   ControlTn * operator() () {return Create();}
 };
 
-/// #brief функтор создания контрольной части умного указателя для случая "свой"
+/// @brief функтор создания контрольной части умного указателя для случая "свой"
 template <typename Tn, typename ControlTn, template <typename> class Traits>
 class MakeFriend{
  public:
@@ -161,6 +167,7 @@ class MakeFriend{
   ControlTn * operator() () {return Create();}
 };
 
+/// @brief функтор создания контрольной части умного указателя для случаев "чужой или свой"
 template <typename Tn, typename ControlTn, template <typename> class Traits>
 class MakeFoeOrFriend
     : public StaticSwitch<
@@ -169,6 +176,7 @@ class MakeFoeOrFriend
                  !std::is_base_of<Base, Tn>::value > {
 };
 
+/// @brief функтор создания контрольной части умного указателя, интегрирующий все случаи, "чужой, или свой, или простой"
 template <typename Tn, typename ControlTn, template <typename> class Traits>
 class MakeFoeOrFriendOrSimple
     : public StaticSwitch<
@@ -193,7 +201,19 @@ struct DefaultTraits {
   template <typename Type> static void  DeleteArray(Type * pointer) {delete[] pointer;}
 };
 
-template <typename Tn, template <typename> class TraitsTn>
+/**
+ @breif умный указатель
+ @remarks Важный момент: в архитектуре указателя сделано так, что нельзя сделать указатель владельцем
+          динамически выделенной памяти. Можно только создать этот указатель вместе с объектом.
+          Это убивает много возможностей выстрелить себе в ногу.
+          Так же (ПОКА) нет возможности полчить указатель на голые данные иначе, чем используя
+          хак с прямым вызовом operator->() - напр. int * x = int_smart_ptr->operator->() или 
+          конструкцию int * x = &(*int_smart_ptr), потому что оперирование с указателем на "сырые"
+          raw данные - это подход в стиле си, и категорически против подходов c++. Подход в стиле
+          c++ предусматривает создание иных механизмов доступа, контролирующих процесс, и гарантирующих
+          валидность результата. Например, создание итераторов, обёрток для "сырых" raw указателей и так далее.
+ **/
+ template <typename Tn, template <typename> class TraitsTn>
 class SmartPointer
 {
  public:
@@ -215,15 +235,34 @@ class SmartPointer
   }
 
   This & operator= (const This & value) {value.ConstructReferenceAt(*this);}
-  Pointer      operator->()       {return static_cast<     Pointer>( get_control()->Get() );}
-  ConstPointer operator->() const {return static_cast<ConstPointer>(     control()->Get() );}
-  Reference      operator*()       {return static_cast<     Reference>( *get_control()->Get() );}
-  ConstReference operator*() const {return static_cast<ConstReference>( *    control()->Get() );}
-  operator bool() const {return control()->IsAnyReference();}
+  Pointer      operator->()       {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    return static_cast<     Pointer>( get_control()->Get() );
+  }
+  ConstPointer operator->() const {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    return static_cast<ConstPointer>(     control()->Get() );
+  }
+  Reference      operator*()       {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    Tn * re = get_control()->Get();
+    ASSERTION(re, "Null Dereferencing", Exception);
+    return static_cast<     Reference>( *re );
+  }
+  ConstReference operator*() const {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    Tn * re = control()->Get();
+    ASSERTION(re, "Null Dereferencing", Exception);
+    return static_cast<ConstReference>( *re );
+  }
+  operator bool() const {return !control() && control()->IsAnyReference();}
 
  protected:
   void Dereference();
-  void IncreaseReference() const {control()->IncreaseReferenceCount();} // const потому, что логически указатель не меняется, только побитово
+  void IncreaseReference() const {
+    ASSERTION(control(), "Null Dereferencing", Exception);
+    control()->IncreaseReferenceCount();
+  } // const потому, что логически указатель не меняется, только побитово
   void ConstructReferenceAt(This & to_construct) const;
   Control const *     control() const {return ref_;}
   Control       * get_control()       {return ref_;}
