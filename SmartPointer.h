@@ -122,6 +122,20 @@ class Base : public Counter {
     }
 };
 
+/**
+  @brief Корень для виртуальной иерархии
+  @details Виртуальный деструктор inside :)
+  @remarks Base сделан без виртуальной таблицы для скорости - но невозможность
+           сделать иерархию с виртуальными деструкторами - это упущение
+           Поэтому создан этот класс и обеспечено корректное удаление его наследников
+           из указателя @ref SmartPointer
+  **/
+class VBase : public Base {
+ public:
+  VBase() : Base() {}
+  ~VBase() {}
+};
+
 
 namespace internal {
 
@@ -401,7 +415,11 @@ void SmartPointer<Tn, TraitsTn>::Dereference() {
     typedef void (*LocalDelete) (Tn *);
     LocalDelete del_f = static_cast<LocalDelete>(&TraitsTn<Tn>::Delete); //берём указатель на шаблонную функцию-деаллокатор
     get_control()->DeleteData( (DeleterFunction)del_f );
-    TraitsTn<Tn>::Delete(get_control());
+    if ( !std::is_base_of<VBase, Tn>::value ) {
+      TraitsTn<Tn>::Delete(get_control());
+    } else {
+      TraitsTn<VBase>::Delete( reinterpret_cast<VBase *>( get_control() ) ); //обеспечиваем корректное удаление наследника VBase (потомка всех виртуальных классов в данной иерархии)
+    }
     control(nullptr);
   }
 };
