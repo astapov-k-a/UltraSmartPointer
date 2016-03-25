@@ -133,7 +133,7 @@ class Base : public Counter {
 class VBase : public Base {
  public:
   VBase() : Base() {}
-  ~VBase() {}
+  virtual ~VBase() {}
 };
 
 
