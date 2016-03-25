@@ -7,6 +7,8 @@
 ///                Прим. это уже вторая версия, рабочая, что называется Release Candidate 1.0 .
 ///                Для большего уровня корректности кода
 ///                нужно написать очень хороший тест, будет позднее.
+/// @disclaimer №3 Я комментирую всё, что вызывает вопросы, аргументированную критику.
+///                А так же тонкие моменты, поэтому простыней комментариев много.
 /// @author Astapov K.A. +7(931)-29-17-0-16
 /// @date 22/03/2016
 
@@ -21,6 +23,22 @@
 
 
 namespace example_lib {
+
+/// @def ULTRA_SMART_POINTER_IS_TYPE_CORRECT
+/// @brief макрос проверки корректности типа
+/// @details в функциях вроде SmartPointer::operator-> результат функции
+///          Control::Get преобразуется из типа Base * к типу Tn *.
+///          Этот макрос проверяет корректность преобразования.
+///          Сделан для устойчивости кода к некорректным модификациям -
+///          на данный момент случай, который он проверяет, невозможен
+/// @remarks dynamic_cast нужен, чтобы компилятор не выкинул код проверки в
+///          целях оптимизации (например, если макрос ASSERTION пуст)
+#define ULTRA_SMART_POINTER_IS_TYPE_CORRECT(Base, Type) \
+  {\
+  STATIC_ASSERTION(std::is_base_of(Base, Tn)); \
+  volatile Tn * convert = const_cast<volatile Tn *>(  dynamic_cast<Tn *>( (Base *)nullptr )  ); \
+  ASSERTION(convert, "Bad cast!!!", Exception); \
+  }
 
 template <typename Tn> struct DefaultTraits;
 template <typename Tn, template <typename> class TraitsTn = DefaultTraits>
@@ -41,7 +59,7 @@ class Counter {
     /**
      * @warning Этот класс - просто счётчик ссылок, который может являться частью данных.
      *          Это означает, что если при присвоении одному классу затрётся счётчик ссылок,
-     *          то все указатели на него не валидны. Поэтому счётчики не копируются - 
+     *          то все указатели на него не валидны. Поэтому счётчики не копируются -
      *          копирующие конструкторы и операторы присваивания у них пусты!!!
      **/
   Counter(const Counter & to_copy) {Q_UNUSED(to_copy);} //нельзя автоматически копировать счётчик
@@ -49,7 +67,7 @@ class Counter {
     /**
      * @warning Этот класс - просто счётчик ссылок, который может являться частью данных.
      *          Это означает, что если при присвоении одному классу затрётся счётчик ссылок,
-     *          то все указатели на него не валидны. Поэтому счётчики не копируются - 
+     *          то все указатели на него не валидны. Поэтому счётчики не копируются -
      *          копирующие конструкторы и операторы присваивания у них пусты!!!
      **/
   Counter & operator=(const Counter & to_copy) {return * this;Q_UNUSED(to_copy);} //нельзя автоматически копировать счётчик
@@ -80,8 +98,8 @@ class Base : public Counter {
                  Если цель - служебная обвязка, сильно влияющая на скорость программы, и эта скорость ВАЖНА,
                  то виртуальность - крайняя мера.
                  Т.к. умный указатель - скорее ближе к движку программы, чем к бизнес-логике , по умолчанию полагаем второе
-    **/    
-    ~Base() {}    
+    **/
+    ~Base() {}
 
     // @warning Копирующий оператор пуст - нечего копировать в Base.  Главное, не мешать оператору копирования
     //          Counter ничего делать. Если Counter скопируестя, все умные указатели на Base станут невалидными!!!
@@ -99,7 +117,7 @@ class Base : public Counter {
 
    private:
     Base & GetData() {
-      ASSERTION(Get(), "Null dereferencing!!!")
+      ASSERTION(Get(), "Null dereferencing!!!", Exception)
       return *Get();
     }
 };
@@ -206,12 +224,52 @@ struct DefaultTraits {
           динамически выделенной памяти. Можно только создать этот указатель вместе с объектом.
           Это убивает много возможностей выстрелить себе в ногу.
           Так же (ПОКА) нет возможности полчить указатель на голые данные иначе, чем используя
-          хак с прямым вызовом operator->() - напр. int * x = int_smart_ptr->operator->() или 
+          хак с прямым вызовом operator->() - напр. int * x = int_smart_ptr->operator->() или
           конструкцию int * x = &(*int_smart_ptr), потому что оперирование с указателем на "сырые"
           raw данные - это подход в стиле си, и категорически против подходов c++. Подход в стиле
           c++ предусматривает создание иных механизмов доступа, контролирующих процесс, и гарантирующих
           валидность результата. Например, создание итераторов, обёрток для "сырых" raw указателей и так далее.
  @todo сделать преобразование к указателю на производный класс с той же контрольной частью / Make downcast
+
+
+ @page SmartPointer_const_correctness "Философские размышления на тему const-correctness @ref SmartPointer "UltraSmartPointer" "
+       Тут возник вопрос по конст-корректности, поэтому подробно разъясняю его.
+       К сожалению, коротко разъяснить его нельзя, поэтому если Вас const-correctness
+       не интересует - пропустите этот текст.
+       const-correctness принесена в жертву потенциальной будущей атомарности.
+       При конструировании указателя из другого указателя нужно сделать две операции
+       1) увеличить счётчик
+       2) установить контрольную часть создаваемого указателя на общую контрольную часть
+       Так вот, В НАЧАЛЕ надо увеличить счётчик. Иначе может сложиться ситуация,
+       когда из одного потока вы вызываете создание указателя, созданного в другом потоке,
+       а этот другой поток его (указатель) решит удалить. И он окажется последним.
+       И контрольная часть будет удалена МЕЖДУ установкой контрольной части и увеличением
+       счётчика.
+
+       А значит, увеличивать счётчик может только объект, ИЗ которого конструируется
+       данный смартпоинтер. А он в конструкторе копирования и операторе присвоения
+       ДОЛЖЕН быть константным. Т.е. изменение части объекта(счётчика) из константного объекта.
+       Вот у нас уже счётчик mutable. Но это логично, так как изменение счётчика
+       не нарушает логическую константность, только побитовую - ведь сам укзатель
+       на объект не изменяется, меняется лишь его служебая величина.
+
+       А далее всё интереснее и интереснее. Допустим, мы из оператора присваивания
+       устанавливаем контрольную часть создаваемого поинтера. Но это уже нарушение
+       const-correctness - потому что мы из константного объекта можем получить
+       только указатель на константную контрольную часть! Значит, нужно либо нарушать
+       конст-корректность, получая из константного объекта указатель на неконстантный
+       Control или нарушать const-correctness, преобразуя указатель на const Control
+       к указателю на некостантную контрольную часть.
+       Можно попробовать написать функцию, которая ИЗ объекта-источника конструирует
+       создаваемый объект. Но это ничего не поменяет для const-correctness, т.к.
+       нужно всё равно из указателя на константный контрол делать указатель на
+       неконстантный.
+       Есть ещё одно решение - объявить ссылку на контрольную часть mutable. Т.е.
+       контрольная часть у нас логически тоже не меняет указатель, так как является
+       разделяемой между совершенно разными укзателями - константными и не очень.
+       Но тогда что у нас в указателе останется не mutable? НИЧЕГО. Значит,
+       конст-корректнесс вообще тогда теряет всякий смысл.
+       Вот и выходит, что const-correctness несколько не подходит для SmartPointer'ов
  **/
  template <typename Tn, template <typename> class TraitsTn>
 class SmartPointer
@@ -229,29 +287,65 @@ class SmartPointer
   typedef Control * ControlPtr;
 
   SmartPointer() : ref_(nullptr) {}
-  SmartPointer(const This & value) {value.ConstructReferenceAt(*this);}
+  //SmartPointer(const This & value) {value.ConstructReferenceAt(*this);}
+  SmartPointer(const This & value) {ConstructReferenceFrom(value);}
   ~SmartPointer() {
     Dereference();
   }
 
-  This & operator= (const This & value) {value.ConstructReferenceAt(*this);}
+  //This & operator= (const This & value) {value.ConstructReferenceAt(*this);}
+  This & operator= (const This & value) {value.ConstructReferenceFrom(*this);}
   Pointer      operator->()       {
     ASSERTION(control(), "Null Dereferencing", Exception);
-    return static_cast<     Pointer>( get_control()->Get() );
+    /// @remarks Здесь, в зависимости от типа контрольной части "свой"/"чужой"/"простой"
+    ///           возвращается либо Tn * ("чужой"/"простой"), либо Base *("свой")
+    ///           поэтому нужен именно static_cast к Tn* (dynamic_cast не может работать с
+    ///           указателями вида int * - случай "простой"). static_cast безопасен
+    ///           даже в случаях сложного виртуального/множественного наследования.
+    ///           альтернатива - шаблонный каст к произвольному типу с проверками
+    ///           на динамик кастах, ассертах и статик ассертах внутри Base, а так же
+    ///           контрола "свой", контрола "чужой". Но static_assert проще.
+    auto * re = get_control()->Get();
+    return static_cast<     Pointer>( re );
   }
   ConstPointer operator->() const {
     ASSERTION(control(), "Null Dereferencing", Exception);
-    return static_cast<ConstPointer>(     control()->Get() );
+    /// @remarks Здесь, в зависимости от типа контрольной части "свой"/"чужой"/"простой"
+    ///           возвращается либо Tn * ("чужой"/"простой"), либо Base *("свой")
+    ///           поэтому нужен именно static_cast к Tn* (dynamic_cast не может работать с
+    ///           указателями вида int * - случай "простой"). static_cast безопасен
+    ///           даже в случаях сложного виртуального/множественного наследования.
+    ///           альтернатива - шаблонный каст к произвольному типу с проверками
+    ///           на динамик кастах, ассертах и статик ассертах внутри Base, а так же
+    ///           контрола "свой", контрола "чужой". Но static_assert проще.
+    const Base * re = control()->Get();
+    return static_cast<ConstPointer>( re );
   }
   Reference      operator*()       {
     ASSERTION(control(), "Null Dereferencing", Exception);
-    Tn * re = get_control()->Get();
+    /// @remarks Здесь, в зависимости от типа контрольной части "свой"/"чужой"/"простой"
+    ///           возвращается либо Tn * ("чужой"/"простой"), либо Base *("свой")
+    ///           поэтому нужен именно static_cast к Tn* (dynamic_cast не может работать с
+    ///           указателями вида int * - случай "простой"). static_cast безопасен
+    ///           даже в случаях сложного виртуального/множественного наследования.
+    ///           альтернатива - шаблонный каст к произвольному типу с проверками
+    ///           на динамик кастах, ассертах и статик ассертах внутри Base, а так же
+    ///           контрола "свой", контрола "чужой". Но static_assert проще.
+    auto * re = get_control()->Get();
     ASSERTION(re, "Null Dereferencing", Exception);
     return static_cast<     Reference>( *re );
   }
   ConstReference operator*() const {
     ASSERTION(control(), "Null Dereferencing", Exception);
-    Tn * re = control()->Get();
+    /// @remarks Здесь, в зависимости от типа контрольной части "свой"/"чужой"/"простой"
+    ///           возвращается либо Tn * ("чужой"/"простой"), либо Base *("свой")
+    ///           поэтому нужен именно static_cast к Tn* (dynamic_cast не может работать с
+    ///           указателями вида int * - случай "простой"). static_cast безопасен
+    ///           даже в случаях сложного виртуального/множественного наследования.
+    ///           альтернатива - шаблонный каст к произвольному типу с проверками
+    ///           на динамик кастах, ассертах и статик ассертах внутри Base, а так же
+    ///           контрола "свой", контрола "чужой". Но static_assert проще.
+    const auto * re = control()->Get();
     ASSERTION(re, "Null Dereferencing", Exception);
     return static_cast<ConstReference>( *re );
   }
@@ -263,19 +357,11 @@ class SmartPointer
     ASSERTION(control(), "Null Dereferencing", Exception);
     control()->IncreaseReferenceCount();
   } // const потому, что логически указатель не меняется, только побитово
-  void ConstructReferenceAt(This & to_construct) const;
+  //void ConstructReferenceAt(This & to_construct) const;
+  void ConstructReferenceFrom(const This & from_construct);
   Control const *     control() const {return ref_;}
   Control       * get_control()       {return ref_;}
-  /**
-   @remarks Здесь стоит const_cast из-за ConstructReferenceAt, который проводит действия над константным
-   объектом. Если его заменить на ConstructReferenceFrom (т.е. конструировать будет не владелец данных, а создаваемый объект),
-   то const-correctness полностью восстановится. в момент написания кода, мне казалось, что по логике создавать объект должен именно
-   владелец. Но потери для const-correctness оказались, по результатам, катастрофическими (даже Counter стал mutable), поэтому, 
-   нужно обдумать, нужно ли это в архитектуре указателя.
-   Сейчас я думаю, что возможно, поторопился
-   @todo заменить ConstructReferenceAt на ConstructReferenceFrom ???
-  **/
-  void control (const Control * value) {ref_ = const_cast<Control *>(value);}
+  void control (Control * value) {ref_ = value;}
   Control const *     data() const {
     ASSERTION(control(), "Null Dereferencing", Exception);
     return     control().Get();
@@ -320,10 +406,20 @@ void SmartPointer<Tn, TraitsTn>::Dereference() {
   }
 };
 
+//template <typename Tn, template <typename> class TraitsTn>
+//void SmartPointer<Tn, TraitsTn>::ConstructReferenceAt(This & to_construct) const {
+//  IncreaseReference();
+//  to_construct.control( control() );
+//}
+
+
 template <typename Tn, template <typename> class TraitsTn>
-void SmartPointer<Tn, TraitsTn>::ConstructReferenceAt(This & to_construct) const {
-  IncreaseReference();
-  to_construct.control( control() );
+void SmartPointer<Tn, TraitsTn>::ConstructReferenceFrom(const This & from_construct) {
+  from_construct.IncreaseReference();
+  /// @remarks здесь используется const_cast - потому, что полностью
+  ///          const-correctness код невозможен для SmartPointer по логическим
+  ///          причинам - @ref SmartPointer_const_correctness "см. Философские размышления на тему const-correctness SmartPointer'а"
+  control(  const_cast<Control *>( from_construct.control() )  );
 }
 
 
@@ -335,6 +431,8 @@ SmartPointer<Tn, TraitsTn> Make() {
    re.IncreaseReference();
    return re;
 }
+
+#undef ULTRA_SMART_POINTER_IS_TYPE_CORRECT
 
 } // namespace example_lib
 
