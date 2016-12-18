@@ -217,7 +217,9 @@ class MakeFoeOrFriendOrSimple
     : public StaticSwitch<
                  MakeFoeOrFriend<Tn, ControlTn, Traits>,
                  MakeSimple<Tn, ControlTn, Traits>,
-                 std::is_class<Tn>::value > {
+                 std::is_class<Tn>::value > { // здесь включаются в контрольную часть все POD'ы.
+                   //Можно изменить условие, и сделать так, что включатся будут только POD'ы с sizeof()<=3*sizeof(void *), например,
+                   //или любой другой критерий
 };
 
 } // namespace internal
